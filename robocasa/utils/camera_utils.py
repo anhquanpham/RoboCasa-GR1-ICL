@@ -88,4 +88,63 @@ CAM_CONFIGS = dict(
         quat=[0, 0.707107, 0.707107, 0],
         parent_body="robot0_right_hand",
     ),
+    # robot0_warp_left=dict(
+    #     pos=[-0.0, 0.35, 0.6],
+    #     quat=[0.55623853, 0.29935253, -0.37678665, -0.6775092],
+    #     camera_attribs=dict(fovy="60"),
+    #     parent_body="mobilebase0_support",
+    # ),
+    # robot0_warp_right=dict(
+    #     pos=[-0.0, -0.35, 0.6],
+    #     quat=[
+    #         0.6775091886520386,
+    #         0.3767866790294647,
+    #         -0.2993525564670563,
+    #         -0.55623859167099,
+    #     ],
+    #     camera_attribs=dict(fovy="60"),
+    #     parent_body="mobilebase0_support",
+    # ),
+    # robot0_warp_left=dict(
+    #     pos=[0.3, 0.30, 0.6],
+    #     # quat=[0.55623853, 0.29935253, -0.37678665, -0.6775092],
+    #     quat=[-0.1046409, 0.2097227, -0.2639721, -0.9356203],
+    #     camera_attribs=dict(fovy="60"),
+    #     parent_body="mobilebase0_support",
+    # ),
+    # robot0_warp_right=dict(
+    #     pos=[0.3, -0.30, 0.6],
+    #     # quat=[
+    #     #     0.6775091886520386,
+    #     #     0.3767866790294647,
+    #     #     -0.2993525564670563,
+    #     #     -0.55623859167099,
+    #     # ],
+    #     quat=[
+    #         0.8404539, 0.4005942, -0.3182674, 0.1785143,
+    #     ],
+    #     camera_attribs=dict(fovy="60"),
+    #     parent_body="mobilebase0_support",
+    # ),
+    # robot0_warp_left=dict(
+    #     pos=[0.5, 0.0, 0.7],
+    #     # quat=[0.55623853, 0.29935253, -0.37678665, -0.6775092],
+    #     quat=[0.7071068, 0, 0, -0.7071068],
+    #     camera_attribs=dict(fovy="60"),
+    #     parent_body="mobilebase0_support",
+    # ),
+    robot0_warp_left=dict(
+        pos=[0.15, 0.05, 0.5],
+        # quat=[0.55623853, 0.29935253, -0.37678665, -0.6775092],
+        quat=[0.676, 0.205, -0.205, -0.676],
+        camera_attribs=dict(fovy="60"),
+        parent_body="mobilebase0_support",
+    ),
+    robot0_warp_right=dict(
+        pos=[0.15, -0.05, 0.5],
+        # quat=[0.55623853, 0.29935253, -0.37678665, -0.6775092],
+        quat=[0.676, 0.205, -0.205, -0.676],
+        camera_attribs=dict(fovy="60"),
+        parent_body="mobilebase0_support",
+    ),
 )

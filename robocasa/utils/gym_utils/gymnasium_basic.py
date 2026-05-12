@@ -84,6 +84,7 @@ class RoboCasaEnv(gym.Env):
         camera_heights=None,
         enable_render=True,
         dump_rollout_dataset_dir=None,
+        render_camera_names=None,
         **kwargs,  # Accept additional kwargs
     ):
         self.key_converter = make_key_converter(robots_name)
@@ -98,6 +99,12 @@ class RoboCasaEnv(gym.Env):
             camera_widths = default_camera_widths
         if camera_heights is None:
             camera_heights = default_camera_heights
+
+        # Append render-only cameras (not used by policy, only for video composite)
+        self.render_camera_names = list(render_camera_names) if render_camera_names else []
+        all_camera_names = list(camera_names) + self.render_camera_names
+        all_camera_widths = [camera_widths] * len(camera_names) + [camera_widths] * len(self.render_camera_names)
+        all_camera_heights = [camera_heights] * len(camera_names) + [camera_heights] * len(self.render_camera_names)
 
         controller_configs = load_composite_controller_config(
             controller=None,
@@ -116,9 +123,9 @@ class RoboCasaEnv(gym.Env):
             env_name=env_name,
             robots=robots_name.split("_"),
             controller_configs=controller_configs,
-            camera_names=camera_names,
-            camera_widths=camera_widths,
-            camera_heights=camera_heights,
+            camera_names=all_camera_names,
+            camera_widths=all_camera_widths,
+            camera_heights=all_camera_heights,
             enable_render=enable_render,
             **kwargs,  # Forward kwargs to create_env_robosuite
         )
@@ -130,6 +137,7 @@ class RoboCasaEnv(gym.Env):
         self.enable_render = enable_render
         self.render_obs_key = f"{camera_names[0]}_image"
         self.render_cache = None
+        self.render_extra_cache = []
 
         # setup spaces
         action_space = spaces.Dict()
@@ -206,6 +214,8 @@ class RoboCasaEnv(gym.Env):
                 )
 
         self.render_cache = raw_obs[self.render_obs_key]
+        if self.render_camera_names:
+            self.render_extra_cache = [raw_obs[f"{name}_image"] for name in self.render_camera_names]
         raw_obs["language"] = self.env.get_ep_meta().get("lang", "")
 
         return raw_obs
@@ -255,7 +265,18 @@ class RoboCasaEnv(gym.Env):
     def render(self):
         if self.render_cache is None:
             raise RuntimeError("Must run reset or step before render.")
-        return self.render_cache
+        if not self.render_extra_cache:
+            return self.render_cache
+        frames = [self.render_cache] + self.render_extra_cache
+        max_h = max(f.shape[0] for f in frames)
+        padded = []
+        for f in frames:
+            h = f.shape[0]
+            if h < max_h:
+                pad = max_h - h
+                f = np.pad(f, ((pad // 2, pad - pad // 2), (0, 0), (0, 0)))
+            padded.append(f)
+        return np.concatenate(padded, axis=1)
 
     def close(self):
         self.env.close()
