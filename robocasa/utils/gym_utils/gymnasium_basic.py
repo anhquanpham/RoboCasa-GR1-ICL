@@ -267,16 +267,20 @@ class RoboCasaEnv(gym.Env):
             raise RuntimeError("Must run reset or step before render.")
         if not self.render_extra_cache:
             return self.render_cache
+        # 2×2 grid layout when exactly 3 extra cameras are provided:
+        #   top-left: render_cache (ego)  | top-right: extra[0] (lookback)
+        #   bot-left: extra[1] (warp_left)| bot-right: extra[2] (warp_right)
+        if len(self.render_extra_cache) == 3:
+            tl = self.render_cache
+            tr = self.render_extra_cache[0]
+            bl = self.render_extra_cache[1]
+            br = self.render_extra_cache[2]
+            top = np.concatenate([tl, tr], axis=1)
+            bot = np.concatenate([bl, br], axis=1)
+            return np.concatenate([top, bot], axis=0)
+        # Fallback: horizontal concat for any other number of extra cameras
         frames = [self.render_cache] + self.render_extra_cache
-        max_h = max(f.shape[0] for f in frames)
-        padded = []
-        for f in frames:
-            h = f.shape[0]
-            if h < max_h:
-                pad = max_h - h
-                f = np.pad(f, ((pad // 2, pad - pad // 2), (0, 0), (0, 0)))
-            padded.append(f)
-        return np.concatenate(padded, axis=1)
+        return np.concatenate(frames, axis=1)
 
     def close(self):
         self.env.close()

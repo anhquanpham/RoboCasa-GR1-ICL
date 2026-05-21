@@ -483,15 +483,16 @@ class Tabletop(ManipulationEnv, metaclass=TabletopEnvMeta):
         fxtr_placement_initializer = self._get_placement_initializer(
             self.fixture_cfgs, z_offset=0.0
         )
-        fxtr_placements = None
-        for i in range(10):
-            try:
-                fxtr_placements = fxtr_placement_initializer.sample()
-            except RandomizationError as e:
-                if macros.VERBOSE:
-                    print("Randomization error in initial placement. Try #{}".format(i))
-                continue
-            break
+        fxtr_placements = self._placements_from_ep_meta("fixture_placements", self.fixtures)
+        if fxtr_placements is None:
+            for i in range(10):
+                try:
+                    fxtr_placements = fxtr_placement_initializer.sample()
+                except RandomizationError as e:
+                    if macros.VERBOSE:
+                        print("Randomization error in initial placement. Try #{}".format(i))
+                    continue
+                break
         if fxtr_placements is None:
             if macros.VERBOSE:
                 print("Could not place fixtures. Trying again with self._load_model()")
@@ -519,17 +520,18 @@ class Tabletop(ManipulationEnv, metaclass=TabletopEnvMeta):
 
         # setup object locations
         self.placement_initializer = self._get_placement_initializer(self.object_cfgs)
-        object_placements = None
-        for i in range(1):
-            try:
-                object_placements = self.placement_initializer.sample(
-                    placed_objects=self.fxtr_placements
-                )
-            except RandomizationError as e:
-                if macros.VERBOSE:
-                    print(f"Randomization error in initial placement. {e}. Try #{i}")
-                continue
-            break
+        object_placements = self._placements_from_ep_meta("object_placements", self.objects)
+        if object_placements is None:
+            for i in range(1):
+                try:
+                    object_placements = self.placement_initializer.sample(
+                        placed_objects=self.fxtr_placements
+                    )
+                except RandomizationError as e:
+                    if macros.VERBOSE:
+                        print(f"Randomization error in initial placement. {e}. Try #{i}")
+                    continue
+                break
         if object_placements is None:
             if macros.VERBOSE:
                 print("Could not place objects. Trying again with self._load_model()")
@@ -1131,8 +1133,75 @@ class Tabletop(ManipulationEnv, metaclass=TabletopEnvMeta):
             {k: v.name for (k, v) in self.fixture_refs.items()}
         )
         ep_meta["cam_configs"] = deepcopy(self._cam_configs)
+        if hasattr(self, "fxtr_placements") and self.fxtr_placements:
+            ep_meta["fixture_placements"] = self.serialize_placements(self.fxtr_placements)
+        if hasattr(self, "object_placements") and self.object_placements:
+            ep_meta["object_placements"] = self.serialize_placements(self.object_placements)
 
         return ep_meta
+
+    @staticmethod
+    def serialize_placements(placements):
+        """Serialize sampled placement tuples into JSON-safe dict."""
+        serialized = {}
+        for key, (pos, quat, obj) in placements.items():
+            name = getattr(obj, "name", key)
+            serialized[name] = {
+                "pos": np.asarray(pos, dtype=float).tolist(),
+                "quat": np.asarray(quat, dtype=float).tolist(),
+            }
+        return serialized
+
+    @staticmethod
+    def ep_meta_is_scene_locked(ep_meta):
+        """True when ep_meta contains exact fixture/object placements."""
+        return "fixture_placements" in ep_meta and "object_placements" in ep_meta
+
+    @staticmethod
+    def enrich_ep_meta_with_placements(ep_meta, rs_env):
+        """Attach exact fixture/object placements to ep_meta."""
+        if hasattr(rs_env, "fxtr_placements") and rs_env.fxtr_placements:
+            ep_meta["fixture_placements"] = Tabletop.serialize_placements(
+                rs_env.fxtr_placements
+            )
+        if hasattr(rs_env, "object_placements") and rs_env.object_placements:
+            ep_meta["object_placements"] = Tabletop.serialize_placements(
+                rs_env.object_placements
+            )
+        return ep_meta
+
+    @staticmethod
+    def enrich_ep_meta_with_snapshot(ep_meta, rs_env):
+        """Attach placements + optional full MuJoCo snapshot fields."""
+        ep_meta = Tabletop.enrich_ep_meta_with_placements(ep_meta, rs_env)
+        ep_meta["model_xml"] = rs_env.sim.model.get_xml()
+        ep_meta["sim_state"] = rs_env.sim.get_state().flatten().tolist()
+        return ep_meta
+
+    def _placements_from_ep_meta(self, key, objects_by_name):
+        """Restore exact placements saved in ep_meta, if present."""
+        serialized = self._ep_meta.get(key)
+        if serialized is None:
+            return None
+
+        placements = {}
+        for name, data in serialized.items():
+            if name in objects_by_name:
+                obj = objects_by_name[name]
+            else:
+                obj = next(
+                    (o for o in objects_by_name.values() if getattr(o, "name", None) == name),
+                    None,
+                )
+            if obj is None:
+                raise KeyError(
+                    f"Unknown object '{name}' in saved {key}. "
+                    f"Known objects: {list(objects_by_name.keys())}"
+                )
+            pos = np.array(data["pos"], dtype=float)
+            quat = np.array(data["quat"], dtype=float)
+            placements[name] = (pos, quat, obj)
+        return placements
 
     def find_object_cfg_by_name(self, name):
         """

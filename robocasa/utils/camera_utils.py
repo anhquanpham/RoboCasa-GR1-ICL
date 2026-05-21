@@ -147,4 +147,16 @@ CAM_CONFIGS = dict(
         camera_attribs=dict(fovy="60"),
         parent_body="mobilebase0_support",
     ),
+
+    robot0_center_lookback=dict(
+        pos=[1.4, 0.0, 0.9],
+        quat=[
+            0.6175596117973328,
+            0.3199238181114197,
+            0.3325185477733612,
+            0.636945903301239,
+        ],
+        camera_attribs=dict(fovy="60"),
+        parent_body="mobilebase0_support",
+    ),
 )
