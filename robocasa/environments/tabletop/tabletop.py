@@ -1414,13 +1414,9 @@ class Tabletop(ManipulationEnv, metaclass=TabletopEnvMeta):
             # Guidance debug geometry is parented to mobilebase0_support, so pos is
             # exactly the same base-frame xyz used by the policy guidance code.
             marker_specs = [
-                ("guidance_current_waypoint_marker", "0.018", "0.898 0.420 0.435 0.9"),
-                ("guidance_right_eef_marker", "0.018", "0.208 1.000 0.208 0.9"),
+                ("guidance_current_waypoint_marker", "0.010", "0.898 0.420 0.435 0.9"),
+                ("guidance_right_eef_marker", "0.010", "0.208 1.000 0.208 0.9"),
             ]
-            marker_specs.extend(
-                (f"guidance_traj_marker_{i:03d}", "0.006", "0.0 1.0 1.0 0.9")
-                for i in range(128)
-            )
             for name, size, rgba in marker_specs:
                 if find_elements(root=support_body, tags="body", attribs={"name": name}) is not None:
                     continue
@@ -1437,6 +1433,23 @@ class Tabletop(ManipulationEnv, metaclass=TabletopEnvMeta):
                 geom.set("group", "2")
                 marker.append(geom)
                 support_body.append(marker)
+            for i in range(256):
+                name = f"guidance_traj_segment_{i:03d}"
+                if find_elements(root=support_body, tags="body", attribs={"name": name}) is not None:
+                    continue
+                segment = ET.Element("body")
+                segment.set("name", name)
+                segment.set("pos", "0 0 -10")
+                geom = ET.Element("geom")
+                geom.set("name", f"{name}_geom")
+                geom.set("type", "capsule")
+                geom.set("size", "0.0006 0.001")
+                geom.set("rgba", "0.0 1.0 1.0 1.0")
+                geom.set("conaffinity", "0")
+                geom.set("contype", "0")
+                geom.set("group", "2")
+                segment.append(geom)
+                support_body.append(segment)
 
         # result = ET.tostring(root, encoding="utf8").decode("utf8")
         result = ET.tostring(root).decode("utf8")

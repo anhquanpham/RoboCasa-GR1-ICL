@@ -194,6 +194,7 @@ class RoboCasaEnv(gym.Env):
         self.guidance_traj_visible_to_cameras = False
         self._guidance_traj_base = None
         self._guidance_markers_initialized = False
+        self.right_eef_guidance_offset = np.array([0.0, 0.0, -0.08], dtype=np.float32)
 
     def set_guidance_trajectory(self, trajectory_path: str | None):
         if trajectory_path is None:
@@ -228,25 +229,76 @@ class RoboCasaEnv(gym.Env):
         robot = self.env.robots[0]
         eef_name = robot.robot_model.eef_name["right"]
         eef_pos = sim.data.get_body_xpos(eef_name).astype(np.float32)
-        return (support_rot.T @ (eef_pos - support_pos)).astype(np.float32)
+        eef_rot = sim.data.get_body_xmat(eef_name).reshape(3, 3).astype(np.float32)
+        tracked_pos = eef_pos + eef_rot @ self.right_eef_guidance_offset
+        return (support_rot.T @ (tracked_pos - support_pos)).astype(np.float32)
 
     def _set_mobilebase_support_marker_pos(self, name: str, pos_base: np.ndarray):
         body_id = self.env.sim.model.body_name2id(name)
         self.env.sim.model.body_pos[body_id] = np.asarray(pos_base, dtype=np.float32)
 
+    @staticmethod
+    def _quat_from_z_to_vec(vec: np.ndarray) -> np.ndarray:
+        direction = np.asarray(vec, dtype=np.float32)
+        norm = np.linalg.norm(direction)
+        if norm < 1e-8:
+            return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        direction = direction / norm
+        z_axis = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+        dot = float(np.clip(np.dot(z_axis, direction), -1.0, 1.0))
+        if dot > 1.0 - 1e-6:
+            return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        if dot < -1.0 + 1e-6:
+            return np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+        axis = np.cross(z_axis, direction)
+        axis = axis / (np.linalg.norm(axis) + 1e-8)
+        angle = np.arccos(dot)
+        half = 0.5 * angle
+        return np.array(
+            [np.cos(half), axis[0] * np.sin(half), axis[1] * np.sin(half), axis[2] * np.sin(half)],
+            dtype=np.float32,
+        )
+
+    def _set_mobilebase_support_segment(self, name: str, start_base: np.ndarray, end_base: np.ndarray):
+        sim = self.env.sim
+        body_id = sim.model.body_name2id(name)
+        geom_id = sim.model.geom_name2id(f"{name}_geom")
+        start = np.asarray(start_base, dtype=np.float32)
+        end = np.asarray(end_base, dtype=np.float32)
+        delta = end - start
+        length = float(np.linalg.norm(delta))
+        if length < 1e-6:
+            sim.model.body_pos[body_id] = np.array([0.0, 0.0, -10.0], dtype=np.float32)
+            sim.model.body_quat[body_id] = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+            sim.model.geom_size[geom_id, 1] = 0.001
+            return
+        sim.model.body_pos[body_id] = 0.5 * (start + end)
+        sim.model.body_quat[body_id] = self._quat_from_z_to_vec(delta)
+        sim.model.geom_size[geom_id, 0] = 0.0006
+        sim.model.geom_size[geom_id, 1] = max(length * 0.5, 0.001)
+
     def _update_guidance_markers(self, raw_obs: dict):
         if not self.guidance_traj_visible_to_cameras or self._guidance_traj_base is None:
             return
         sim = self.env.sim
-        max_markers = 128
-        n = min(len(self._guidance_traj_base), max_markers)
+        max_segments = 256
+        if len(self._guidance_traj_base) > max_segments + 1:
+            idxs = np.linspace(0, len(self._guidance_traj_base) - 1, max_segments + 1).round().astype(int)
+            traj = self._guidance_traj_base[idxs]
+        else:
+            traj = self._guidance_traj_base
+        n_segments = min(max(len(traj) - 1, 0), max_segments)
 
-        for i in range(max_markers):
-            name = f"guidance_traj_marker_{i:03d}"
-            if i < n:
-                self._set_mobilebase_support_marker_pos(name, self._guidance_traj_base[i])
+        for i in range(max_segments):
+            name = f"guidance_traj_segment_{i:03d}"
+            if i < n_segments:
+                self._set_mobilebase_support_segment(name, traj[i], traj[i + 1])
             else:
-                self._set_mobilebase_support_marker_pos(name, np.array([0.0, 0.0, -10.0], dtype=np.float32))
+                self._set_mobilebase_support_segment(
+                    name,
+                    np.array([0.0, 0.0, -10.0], dtype=np.float32),
+                    np.array([0.0, 0.0, -10.0], dtype=np.float32),
+                )
 
         self._set_mobilebase_support_marker_pos("guidance_current_waypoint_marker", self._guidance_traj_base[0])
         self._set_mobilebase_support_marker_pos(
