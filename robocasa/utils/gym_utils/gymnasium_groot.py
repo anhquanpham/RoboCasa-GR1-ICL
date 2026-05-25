@@ -42,6 +42,9 @@ class GrootRoboCasaEnv(RoboCasaEnv):
             self.observation_space["annotation.human.coarse_action"] = spaces.Text(
                 max_length=256, charset=ALLOWED_LANGUAGE_CHARSET
             )
+            self.observation_space["state.right_eef_base_pos"] = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
+            )
         else:
             self.observation_space[
                 "annotation.human.action.task_description"
@@ -94,6 +97,8 @@ class GrootRoboCasaEnv(RoboCasaEnv):
                 obs["state." + k[5:]] = v
             else:
                 raise ValueError(f"Unknown key: {k}")
+        if isinstance(self.env.robots[0].robot_model, GR1ArmsAndWaist):
+            obs["state.right_eef_base_pos"] = self._right_eef_in_mobilebase_support()
         mapped_names, camera_names, _, _ = self.key_converter.get_camera_config()
         for mapped_name, camera_name in zip(mapped_names, camera_names):
             obs[mapped_name] = GrootRoboCasaEnv.process_img(

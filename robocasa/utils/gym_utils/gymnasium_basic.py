@@ -1,5 +1,6 @@
 import datetime, uuid
 from copy import deepcopy
+from pathlib import Path
 import gymnasium as gym
 import numpy as np
 import os
@@ -190,9 +191,73 @@ class RoboCasaEnv(gym.Env):
         self.dump_rollout_dataset_dir = dump_rollout_dataset_dir
         self.groot_exporter = None
         self.np_exporter = None
+        self.guidance_traj_visible_to_cameras = False
+        self._guidance_traj_base = None
+        self._guidance_markers_initialized = False
+
+    def set_guidance_trajectory(self, trajectory_path: str | None):
+        if trajectory_path is None:
+            self._guidance_traj_base = None
+            self._guidance_markers_initialized = False
+            return
+        p = Path(trajectory_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Guidance trajectory file not found: {p}")
+        arr = np.load(str(p), allow_pickle=True)
+        if isinstance(arr, np.lib.npyio.NpzFile):
+            if "states" in arr:
+                arr = arr["states"]
+            else:
+                arr = arr[list(arr.keys())[0]]
+        arr = np.asarray(arr, dtype=np.float32)
+        if arr.ndim != 2 or arr.shape[1] < 3:
+            raise ValueError(f"Invalid guidance trajectory shape: {arr.shape} from {p}")
+        self._guidance_traj_base = arr[:, :3]
+        self._guidance_markers_initialized = False
+
+    def _mobilebase_support_pose(self):
+        sim = self.env.sim
+        support_bid = sim.model.body_name2id("mobilebase0_support")
+        support_pos = sim.data.body_xpos[support_bid].astype(np.float32)
+        support_rot = sim.data.body_xmat[support_bid].reshape(3, 3).astype(np.float32)
+        return support_pos, support_rot
+
+    def _right_eef_in_mobilebase_support(self):
+        sim = self.env.sim
+        support_pos, support_rot = self._mobilebase_support_pose()
+        robot = self.env.robots[0]
+        eef_name = robot.robot_model.eef_name["right"]
+        eef_pos = sim.data.get_body_xpos(eef_name).astype(np.float32)
+        return (support_rot.T @ (eef_pos - support_pos)).astype(np.float32)
+
+    def _set_mobilebase_support_marker_pos(self, name: str, pos_base: np.ndarray):
+        body_id = self.env.sim.model.body_name2id(name)
+        self.env.sim.model.body_pos[body_id] = np.asarray(pos_base, dtype=np.float32)
+
+    def _update_guidance_markers(self, raw_obs: dict):
+        if not self.guidance_traj_visible_to_cameras or self._guidance_traj_base is None:
+            return
+        sim = self.env.sim
+        max_markers = 128
+        n = min(len(self._guidance_traj_base), max_markers)
+
+        for i in range(max_markers):
+            name = f"guidance_traj_marker_{i:03d}"
+            if i < n:
+                self._set_mobilebase_support_marker_pos(name, self._guidance_traj_base[i])
+            else:
+                self._set_mobilebase_support_marker_pos(name, np.array([0.0, 0.0, -10.0], dtype=np.float32))
+
+        self._set_mobilebase_support_marker_pos("guidance_current_waypoint_marker", self._guidance_traj_base[0])
+        self._set_mobilebase_support_marker_pos(
+            "guidance_right_eef_marker", self._right_eef_in_mobilebase_support()
+        )
+        sim.forward()
+        self._guidance_markers_initialized = True
 
     def get_basic_observation(self, raw_obs):
         raw_obs.update(gather_robot_observations(self.env))
+        self._update_guidance_markers(raw_obs)
 
         # Image are in (H, W, C), flip it upside down
         def process_img(img):
